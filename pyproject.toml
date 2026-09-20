@@ -5,6 +5,7 @@ description = "RAG Chatbot with an eval harness, built on free-tier LLMs"
 requires-python = ">=3.10"
 dependencies = [
     "numpy >= 1.26.0",
+    "python-dotenv >= 1.0.0",
 ]
 
 [project.optional-dependencies]

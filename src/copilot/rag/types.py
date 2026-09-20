@@ -17,7 +17,7 @@ class Chunk:
     title: str
     heading_path: str
     text: str
-    position: str
+    position: int
 
 @dataclass
 class RetrievedChunk:
