@@ -1,0 +1,105 @@
+ENTERPRISE COPILOT - RUNNING NOTES (cheat sheet)          last updated: end of Step 4 start
+=====================================================================================
+
+THE BIG PICTURE
+  RAG = Retrieval-Augmented Generation:  question -> find relevant text -> give it to
+  an LLM -> answer + source citation.
+  Pipeline:  file -> Document -> Chunk -> embeddings -> store (BM25 + vector, RRF)
+             -> LLM -> answer + citations.      Evals measure every stage.
+  Roadmap:  P1 RAG + evals | P2 text-to-SQL agent | P4 MCP tool agent | P5 deploy.
+  Free LLMs only for now: Gemini (default), Groq, OpenRouter (:free), Ollama (local).
+  Switch to paid Claude later = one line in .env. No GPU needed (only for optional
+  fine-tuning phase; Colab/Kaggle free GPUs are enough).
+  Build order = bottom-up: types -> config -> loaders -> chunker -> embeddings ->
+  store -> evals (measure BEFORE adding the LLM) -> llm client -> pipeline -> judge -> cli.
+
+-------------------------------------------------------------------------------------
+STEP 0  SETUP
+  - venv isolates packages:  python -m venv  +  activate every new terminal.
+  - pyproject.toml = project manifest (name, dependencies, dev extras, tool config).
+  - pip install -e ".[dev]"   -e = editable: links to your source, no reinstall needed.
+  - src/ layout: stops Python importing your code from the current folder by accident,
+    so tests exercise the INSTALLED package (catches packaging bugs early).
+  - __init__.py marks a folder as a package.
+  - pytest only collects files named test_*.py  (tests_config.py was silently ignored!).
+  - .gitignore: .env, venv, .cache, __pycache__, *.egg-info. Check `git status` first.
+
+STEP 1  TYPES (rag/types.py)   Document, Chunk, RetrievedChunk, Citation, RAGAnswer
+  - @dataclass = named fields + auto __init__/__repr__/__eq__. Typos fail early.
+  - Mutable defaults: use field(default_factory=list), never = [] (shared by all).
+  - Fields with defaults must come after required ones.
+  - Dataclasses do NOT enforce types at runtime (position: str bug went unnoticed).
+  - Chunk copies source/title/heading_path so citations need no lookup back to Document.
+
+STEP 2  CONFIG (config.py)
+  - Secrets live in .env (git-ignored); .env.example = safe template that IS committed.
+  - load_dotenv(override=False): real environment variables beat the .env file.
+  - No spaces around = in .env (Docker's --env-file breaks on them).
+  - @dataclass(frozen=True) = read-only settings. default_factory=lambda -> env is read
+    at each Settings() call (so tests can override), not once at import.
+  - Unannotated names in a dataclass = class constants; annotated = constructor fields.
+  - provider_config(name) -> base_url/key/model. Gemini, Groq, OpenRouter, Ollama all
+    speak the OpenAI API shape, so one wrapper handles all (provider-agnostic).
+  - fallback_order(): configured provider first, then any other with a key
+    (ollama always eligible, no key). Helps with free-tier daily limits.
+  - Path(__file__).resolve().parents[2] finds the project root.
+
+STEP 3  LOADERS (rag/loaders.py)
+  - Only module that knows about files. .md/.txt read as text, .pdf via pypdf
+    (imported inside the function = lazy import).
+  - title = first "# " heading (not "##"), else filename prettified.
+  - source = path.relative_to(base).as_posix()  (forward slashes on every OS).
+  - doc_id = sha1(relative source)[:12]  -> same file, same id on any machine.
+    (Hashing the full path made ids differ per machine/folder.)
+  - sorted(rglob(...)) -> deterministic order -> reproducible eval scores.
+  - Errors: missing folder -> FileNotFoundError, no supported files -> ValueError.
+  - Tests use tmp_path (fresh temp folder per test).
+
+STEP 4  CHUNKER (rag/chunker.py)   [in progress]
+  - Why chunk: search works best on small focused pieces; LLM context is limited.
+  - Why heading-aware: blind char cuts split facts from their heading. Each chunk keeps
+    "Handbook > Leave Policy > Parental Leave" = the citation + extra search context.
+  - Stage 1: heading STACK. New heading of level N: pop while top level >= N, push.
+    Call flush() BEFORE pushing so collected text is saved under the OLD path.
+  - Stage 2: greedy paragraph packing up to max_chars (default 1000); oversize
+    paragraph is hard-split; overlap (default 150) repeats the tail of the previous
+    chunk so a fact across a boundary survives whole in one chunk.
+  - chunk_id = "<doc_id>-<position>"; position = order in the document.
+  - Tradeoff: small chunks = precise but lose context; big = context but noisy.
+    Overlap = safer boundaries but more duplicate text/storage. Tune with evals (Step 8).
+  - Edge: overlap >= max_chars can loop forever in the hard-split.
+
+-------------------------------------------------------------------------------------
+BUGS WE HIT (good lessons)
+  1. tests_config.py not collected  -> file naming rule test_*.py
+  2. return inside a for loop       -> exits after 1st iteration (indent bug)
+  3. return hashlib.sha1 (no call)  -> returned a function; test passed vacuously
+     => a test that can pass for the wrong reason needs a stronger assertion
+  4. str(path) on Windows gives backslashes -> use .as_posix()
+  5. Chunk.position typed str       -> dataclasses don't check types
+
+INTERVIEW ONE-LINERS
+  - Why RAG instead of fine-tuning?   Knowledge stays fresh/editable, gives citations,
+    no retraining; fine-tuning teaches behavior/style, not facts.
+  - Why chunk, and why heading-aware? Retrieval precision + LLM context limits;
+    headings keep meaning and give human-readable citations.
+  - Why overlap?                      Facts spanning a boundary still appear whole.
+  - Why provider-agnostic LLM layer?  Free-tier limits, no vendor lock-in, model
+    comparison on quality/cost; swap providers with one config line.
+  - Why frozen config / .env?         Secrets out of git, immutable settings, same
+    code runs local/CI/prod.
+  - Why evals before the LLM?         Retrieval bugs are the most common RAG bugs; measure
+    (recall@k, MRR) first so every later change is a measured improvement.
+  - Why deterministic ids/sorting?    Reproducible results across machines and CI.
+  - Why tests with a fake LLM later?  Fast, free, no network; real calls only in evals.
+  - Unit tests vs evals?              Unit = small synthetic input, exact assertions,
+    isolates one module, stable. Evals = real docs + golden questions, measure quality
+    (recall@k, MRR). Tests protect correctness; evals measure quality.
+
+COMING NEXT
+  Step 5 embeddings (TF-IDF in numpy) | 6 hybrid store (BM25 + vectors + RRF) |
+  7 REPL search | 8 golden set + recall@k/MRR | 9 LLM client (cache, retry, fallback) |
+  10 pipeline (grounded prompt, citations) | 11 LLM-as-judge | 12 CLI
+
+TEST COUNT CHECK
+  After Step 3: 14 passed.   After Step 4 (8 chunker tests): 22 passed.
