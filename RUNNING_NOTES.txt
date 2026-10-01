@@ -96,10 +96,14 @@ INTERVIEW ONE-LINERS
     isolates one module, stable. Evals = real docs + golden questions, measure quality
     (recall@k, MRR). Tests protect correctness; evals measure quality.
 
-COMING NEXT
+COMING NEXT (now starting Step 5)
   Step 5 embeddings (TF-IDF in numpy) | 6 hybrid store (BM25 + vectors + RRF) |
   7 REPL search | 8 golden set + recall@k/MRR | 9 LLM client (cache, retry, fallback) |
   10 pipeline (grounded prompt, citations) | 11 LLM-as-judge | 12 CLI
 
 TEST COUNT CHECK
-  After Step 3: 14 passed.   After Step 4 (8 chunker tests): 22 passed.
+  After Step 3: 14 passed.   After Step 4 (chunker, 8 new tests): 22 passed.
+
+STATUS
+  Steps 0-4 done, reviewed, committed & pushed to github.com/hareendra5555/my_Agent
+  (commits authored solely by hareendra5555, no co-author trailer).
