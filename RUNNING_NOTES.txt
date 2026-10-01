@@ -1,4 +1,4 @@
-ENTERPRISE COPILOT - RUNNING NOTES (cheat sheet)          last updated: end of Step 4 start
+ENTERPRISE COPILOT - RUNNING NOTES (cheat sheet)          last updated: Step 4 done, starting Step 5
 =====================================================================================
 
 THE BIG PICTURE
@@ -55,7 +55,7 @@ STEP 3  LOADERS (rag/loaders.py)
   - Errors: missing folder -> FileNotFoundError, no supported files -> ValueError.
   - Tests use tmp_path (fresh temp folder per test).
 
-STEP 4  CHUNKER (rag/chunker.py)   [in progress]
+STEP 4  CHUNKER (rag/chunker.py)   [done]
   - Why chunk: search works best on small focused pieces; LLM context is limited.
   - Why heading-aware: blind char cuts split facts from their heading. Each chunk keeps
     "Handbook > Leave Policy > Parental Leave" = the citation + extra search context.
@@ -68,6 +68,29 @@ STEP 4  CHUNKER (rag/chunker.py)   [in progress]
   - Tradeoff: small chunks = precise but lose context; big = context but noisy.
     Overlap = safer boundaries but more duplicate text/storage. Tune with evals (Step 8).
   - Edge: overlap >= max_chars can loop forever in the hard-split.
+
+  WHY THIS STRATEGY, VS THE ALTERNATIVES
+  - Fixed-size (every N chars, no structure awareness): simplest, but cuts mid-sentence
+    and loses WHICH SECTION a fact belongs to -> bad citations, bad retrieval context.
+    We rejected this; it's the "blind tutorial" approach the README calls out.
+  - Sentence-based (split on ". "): respects grammar, but ignores document structure
+    entirely -> still no heading context, and chunk sizes become unpredictable (one
+    "sentence" of a table or list can be huge or tiny).
+  - Heading-aware + paragraph packing (what we built): splits where the AUTHOR already
+    marked meaning (headings), then packs paragraphs up to a size budget. Keeps related
+    sentences together (a paragraph is rarely half-true without its neighbor), AND gives
+    every chunk a human-readable citation trail for free.
+  - Semantic chunking (embed sentences, cluster by similarity, cut where meaning shifts):
+    more "correct" in theory, but needs an embedding call per sentence (slow + costs
+    money/quota on free-tier APIs), is non-deterministic, and is overkill for structured
+    docs (handbooks, runbooks) that already have headings. Good fit for unstructured
+    transcripts/chat logs where there's no heading to lean on - not our case here.
+  - Overlap (150 chars): cheap insurance against losing a fact that straddles a chunk
+    boundary. Cost = duplicate text -> slightly larger index, slightly more noise in
+    search results. We chose a SMALL overlap (not huge) to balance the two.
+  - Bottom line for interviews: "we pick the cheapest chunking strategy that fits the
+    data's existing structure, and only pay for something fancier (semantic chunking)
+    when the data has no structure to exploit."
 
 -------------------------------------------------------------------------------------
 BUGS WE HIT (good lessons)
